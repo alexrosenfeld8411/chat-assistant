@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 400px;
+            height: 600px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .chat-title {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 18px;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            background: #10b981;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        .chat-controls {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            gap: 8px;
+        }
+
+        .control-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s ease;
+            font-size: 14px;
+        }
+
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            scroll-behavior: smooth;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+
+        .welcome-message {
+            background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+            border: 1px solid #bae6fd;
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            color: #0369a1;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .message {
+            display: flex;
+            margin-bottom: 16px;
+            animation: messageSlideIn 0.3s ease forwards;
+        }
+
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message-content {
+            max-width: 80%;
+            padding: 14px 18px;
+            border-radius: 18px;
+            position: relative;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .user-message {
+            justify-content: flex-end;
+        }
+
+        .user-message .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 6px;
+        }
+
+        .ai-message {
+            justify-content: flex-start;
+        }
+
+        .ai-message .message-content {
+            background: #f8fafc;
+            color: #1e293b;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 6px;
+        }
+
+        .message-text {
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            text-align: right;
+        }
+
+        .user-message .message-time {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .ai-message .message-time {
+            color: #64748b;
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 16px 18px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 18px;
+            border-bottom-left-radius: 6px;
+            max-width: 80%;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #64748b;
+            animation: typingBounce 1.4s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typingBounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .progress-bar {
+            flex: 1;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 1s ease;
+            border-radius: 2px;
+        }
+
+        .progress-text {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .chat-input-container {
+            padding: 20px;
+            border-top: 1px solid #e2e8f0;
+            background: #fafafa;
+        }
+
+        .chat-input-wrapper {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 12px 16px;
+            transition: border-color 0.2s ease;
+            min-height: 44px;
+        }
+
+        .chat-input-wrapper:focus-within {
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        #chat-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            resize: none;
+            font-size: 14px;
+            font-family: inherit;
+            line-height: 1.4;
+            min-height: 20px;
+            max-height: 120px;
+            background: transparent;
+            color: #1e293b;
+            overflow: hidden;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        #chat-input::placeholder {
+            color: #94a3b8;
+        }
+
+        .send-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .send-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .send-btn:active {
+            transform: scale(0.95);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-message {
+            margin-top: 12px;
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 12px;
+            text-align: center;
+            animation: statusSlideIn 0.3s ease;
+        }
+
+        @keyframes statusSlideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .status-message.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .status-message.error {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .status-message.info {
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #dbeafe;
+        }
+
+        .status-message.warning {
+            background: #fefce8;
+            color: #ca8a04;
+            border: 1px solid #fef08a;
+        }
+
+        .settings-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: white;
+            z-index: 10;
+            opacity: 0;
+            transform: translateX(100%);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+            border-radius: 20px;
+        }
+
+        .settings-panel.visible {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: all;
+        }
+
+        .settings-content {
+            padding: 20px;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .settings-header h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .close-settings {
+            background: #f1f5f9;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            font-size: 16px;
+        }
+
+        .setting-group {
+            margin-bottom: 24px;
+        }
+
+        .setting-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        .setting-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 14px;
+            transition: border-color 0.2s ease;
+            font-family: inherit;
+        }
+
+        .setting-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .setting-description {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .save-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+
+        .save-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .connection-status.connected {
+            color: #059669;
+        }
+
+        .connection-status.disconnected {
+            color: #dc2626;
+        }
+
+        .connection-status.processing {
+            color: #f59e0b;
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .chat-container {
+                height: 100vh;
+                max-height: 100vh;
+                border-radius: 0;
+            }
+            
+            .chat-header {
+                padding: 16px;
+            }
+            
+            .chat-messages {
+                padding: 16px;
+            }
+            
+            .chat-input-container {
+                padding: 16px;
+            }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <!-- Chat Header -->
+        <div class="chat-header">
+            <div class="chat-title">
+                <div class="status-indicator"></div>
+                <span>AI Assistant</span>
+            </div>
+            <div class="chat-controls">
+                <button class="control-btn" id="settings-btn" title="Settings">⚙️</button>
+                <button class="control-btn" id="clear-btn" title="Clear Chat">🗑️</button>
+            </div>
+        </div>
+
+        <!-- Chat Messages -->
+        <div class="chat-messages" id="chat-messages">
+            <div class="welcome-message">
+                <p>👋 <strong>Welcome to your AI Assistant!</strong></p>
+                <p>Ask me anything about software, websites, or get help with your questions.</p>
+                <p style="margin-top: 8px; font-size: 12px; opacity: 0.8;">💡 <em>Complex queries may take up to 1 minute to process</em></p>
+                <div class="connection-status" id="connection-status">
+                    <span>🔗</span>
+                    <span id="status-text">Ready to chat</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Input -->
+        <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+                <textarea 
+                    id="chat-input" 
+                    placeholder="Type your question here..."
+                    rows="1"
+                    maxlength="1000">
+                </textarea>
+                <button id="send-btn" class="send-btn" title="Send message">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
+                    </svg>
+                </button>
+            </div>
+            <div id="status-container"></div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="settings-panel" id="settings-panel">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h3>Settings</h3>
+                    <button class="close-settings" id="close-settings">✕</button>
+                </div>
+                
+                <div class="setting-group">
+                    <label for="webhook-url">n8n Webhook URL:</label>
+                    <input 
+                        type="url" 
+                        id="webhook-url" 
+                        placeholder="Enter your n8n webhook URL"
+                        value="https://dgri5zej5qva2.cloudfront.net/webhook-test/dbd70933-6501-474c-b75e-3e3c35d7b221">
+                    <button class="save-btn" id="save-webhook">Save Webhook URL</button>
+                </div>
+
+                <div class="setting-group">
+                    <label for="api-timeout">Request Timeout (seconds):</label>
+                    <input 
+                        type="number" 
+                        id="api-timeout" 
+                        value="90" 
+                        min="30" 
+                        max="180">
+                    <div class="setting-description">
+                        Recommended: 90s for complex AI workflows. Max: 3 minutes.
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <button class="save-btn" id="test-connection">Test Connection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class ChatAssistant {
+            constructor() {
+                this.webhookUrl = localStorage.getItem('webhookUrl') || 'https://dgri5zej5qva2.cloudfront.net/webhook-test/dbd70933-6501-474c-b75e-3e3c35d7b221';
+                this.apiTimeout = parseInt(localStorage.getItem('apiTimeout')) || 90000; // 90 seconds default
+                this.chatHistory = JSON.parse(localStorage.getItem('chatHistory') || '[]');
+                this.isWaitingForResponse = false;
+                this.progressTimer = null;
+                this.startTime = null;
+                
+                this.initializeElements();
+                this.attachEventListeners();
+                this.loadChatHistory();
+                this.loadSettings();
+            }
+
+            initializeElements() {
+                this.messagesContainer = document.getElementById('chat-messages');
+                this.inputField = document.getElementById('chat-input');
+                this.sendBtn = document.getElementById('send-btn');
+                this.settingsPanel = document.getElementById('settings-panel');
+                this.settingsBtn = document.getElementById('settings-btn');
+                this.closeSettingsBtn = document.getElementById('close-settings');
+                this.clearBtn = document.getElementById('clear-btn');
+                this.webhookUrlInput = document.getElementById('webhook-url');
+                this.apiTimeoutInput = document.getElementById('api-timeout');
+                this.saveWebhookBtn = document.getElementById('save-webhook');
+                this.testConnectionBtn = document.getElementById('test-connection');
+                this.statusContainer = document.getElementById('status-container');
+                this.connectionStatus = document.getElementById('connection-status');
+                this.statusText = document.getElementById('status-text');
+            }
+
+            attachEventListeners() {
+                // Send message events
+                this.sendBtn.addEventListener('click', () => this.sendMessage());
+                this.inputField.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+
+                // Auto-resize textarea
+                this.inputField.addEventListener('input', () => this.autoResizeInput());
+
+                // Settings panel
+                this.settingsBtn.addEventListener('click', () => this.toggleSettings());
+                this.closeSettingsBtn.addEventListener('click', () => this.toggleSettings());
+
+                // Clear chat
+                this.clearBtn.addEventListener('click', () => this.clearChat());
+
+                // Settings actions
+                this.saveWebhookBtn.addEventListener('click', () => this.saveSettings());
+                this.testConnectionBtn.addEventListener('click', () => this.testConnection());
+
+                // Focus input on load
+                this.inputField.focus();
+            }
+
+            toggleSettings() {
+                this.settingsPanel.classList.toggle('visible');
+            }
+
+            loadSettings() {
+                this.webhookUrlInput.value = this.webhookUrl;
+                this.apiTimeoutInput.value = this.apiTimeout / 1000;
+            }
+
+            saveSettings() {
+                const url = this.webhookUrlInput.value.trim();
+                const timeout = parseInt(this.apiTimeoutInput.value) * 1000;
+
+                if (!url) {
+                    this.showStatus('Please enter a webhook URL', 'error');
+                    return;
+                }
+
+                if (!this.isValidUrl(url)) {
+                    this.showStatus('Please enter a valid URL', 'error');
+                    return;
+                }
+
+                if (timeout < 30000 || timeout > 180000) {
+                    this.showStatus('Timeout must be between 30 and 180 seconds', 'error');
+                    return;
+                }
+
+                this.webhookUrl = url;
+                this.apiTimeout = timeout;
+
+                localStorage.setItem('webhookUrl', this.webhookUrl);
+                localStorage.setItem('apiTimeout', this.apiTimeout.toString());
+
+                this.showStatus('Settings saved successfully!', 'success');
+                this.updateConnectionStatus('Ready to chat', 'connected');
+                
+                setTimeout(() => {
+                    this.toggleSettings();
+                }, 1500);
+            }
+
+            async testConnection() {
+                if (!this.webhookUrl) {
+                    this.showStatus('Please enter a webhook URL first', 'error');
+                    return;
+                }
+
+                this.showStatus('Testing connection...', 'info');
+                this.testConnectionBtn.disabled = true;
+                this.testConnectionBtn.textContent = 'Testing...';
+
+                try {
+                    const response = await fetch(this.webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            message: 'Connection test',
+                            timestamp: new Date().toISOString(),
+                            url: window.location.href,
+                            domain: window.location.hostname,
+                            test: true
+                        }),
+                        signal: AbortSignal.timeout(this.apiTimeout)
+                    });
+
+                    if (response.ok) {
+                        this.showStatus('✅ Connection successful!', 'success');
+                        this.updateConnectionStatus('Connected', 'connected');
+                    } else {
+                        this.showStatus(`❌ Connection failed: ${response.status}`, 'error');
+                        this.updateConnectionStatus('Connection failed', 'disconnected');
+                    }
+                } catch (error) {
+                    console.error('Connection test failed:', error);
+                    this.showStatus(`❌ Connection failed: ${error.message}`, 'error');
+                    this.updateConnectionStatus('Connection failed', 'disconnected');
+                } finally {
+                    this.testConnectionBtn.disabled = false;
+                    this.testConnectionBtn.textContent = 'Test Connection';
+                }
+            }
+
+            updateConnectionStatus(text, status) {
+                this.statusText.textContent = text;
+                this.connectionStatus.className = `connection-status ${status}`;
+            }
+
+            loadChatHistory() {
+                this.chatHistory.forEach(message => {
+                    this.appendMessage(message.text, message.isUser, false);
+                });
+                this.scrollToBottom();
+            }
+
+            clearChat() {
+                if (confirm('Are you sure you want to clear the chat history?')) {
+                    this.chatHistory = [];
+                    localStorage.removeItem('chatHistory');
+                    
+                    // Remove all messages except welcome
+                    const messages = this.messagesContainer.querySelectorAll('.message');
+                    messages.forEach(msg => msg.remove());
+                    
+                    this.showStatus('Chat history cleared', 'success');
+                }
+            }
+
+            async sendMessage() {
+                const message = this.inputField.value.trim();
+                
+                if (!message || this.isWaitingForResponse) {
+                    return;
+                }
+
+                if (!this.webhookUrl) {
+                    this.showStatus('Please configure your webhook URL in settings', 'error');
+                    this.toggleSettings();
+                    return;
+                }
+
+                // Add user message
+                this.addToHistory(message, true);
+                this.appendMessage(message, true);
+                this.inputField.value = '';
+                this.autoResizeInput();
+
+                // Send to webhook
+                this.isWaitingForResponse = true;
+                this.sendBtn.disabled = true;
+                this.startTime = Date.now();
+                this.showEnhancedTypingIndicator();
+                this.updateConnectionStatus('Processing...', 'processing');
+                this.startProgressTimer();
+
+                try {
+                    const response = await this.sendToWebhook(message);
+                    this.hideTypingIndicator();
+                    this.clearProgressTimer();
+                    
+                    // Add AI response
+                    this.addToHistory(response, false);
+                    this.appendMessage(response, false);
+                    this.updateConnectionStatus('Connected', 'connected');
+                    
+                } catch (error) {
+                    this.hideTypingIndicator();
+                    this.clearProgressTimer();
+                    console.error('Chat error:', error);
+                    
+                    let errorMessage = 'Sorry, I encountered an error. Please check your connection and try again.';
+                    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+                        errorMessage = 'The AI is taking longer than expected. Please try a simpler question or check your connection.';
+                    }
+                    
+                    this.appendMessage(errorMessage, false);
+                    this.showStatus('Failed to send message', 'error');
+                    this.updateConnectionStatus('Connection failed', 'disconnected');
+                } finally {
+                    this.isWaitingForResponse = false;
+                    this.sendBtn.disabled = false;
+                    this.inputField.focus();
+                }
+            }
+
+            startProgressTimer() {
+                this.progressTimer = setInterval(() => {
+                    if (this.startTime) {
+                        const elapsed = Math.floor((Date.now() - this.startTime) / 1000);
+                        this.updateTypingProgress(elapsed);
+                    }
+                }, 1000);
+            }
+
+            clearProgressTimer() {
+                if (this.progressTimer) {
+                    clearInterval(this.progressTimer);
+                    this.progressTimer = null;
+                }
+                this.startTime = null;
+            }
+
+            updateTypingProgress(elapsed) {
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (!typingIndicator) return;
+
+                const maxTime = this.apiTimeout / 1000;
+                const progress = Math.min((elapsed / maxTime) * 100, 100);
+                
+                const progressFill = typingIndicator.querySelector('.progress-fill');
+                const progressText = typingIndicator.querySelector('.progress-text');
+                const typingText = typingIndicator.querySelector('.typing-text');
+                
+                if (progressFill) progressFill.style.width = `${progress}%`;
+                if (progressText) progressText.textContent = `${elapsed}s`;
+                
+                if (typingText) {
+                    if (elapsed < 15) {
+                        typingText.textContent = 'AI is processing your request...';
+                    } else if (elapsed < 30) {
+                        typingText.textContent = 'Still processing... complex queries take time';
+                    } else if (elapsed < 60) {
+                        typingText.textContent = 'Almost there... finalizing response';
+                    } else {
+                        typingText.textContent = 'This is taking longer than usual...';
+                    }
+                }
+
+                this.updateConnectionStatus(`Processing... ${elapsed}s`, 'processing');
+            }
+
+            async sendToWebhook(message) {
+                const response = await fetch(this.webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        timestamp: new Date().toISOString(),
+                        url: window.location.href,
+                        domain: window.location.hostname
+                    }),
+                    signal: AbortSignal.timeout(this.apiTimeout)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const text = await response.text();
+                
+                try {
+                    const data = JSON.parse(text);
+                    return data.response || data.message || text;
+                } catch (e) {
+                    return text || 'Response received';
+                }
+            }
+
+            addToHistory(message, isUser) {
+                const messageObj = {
+                    id: Date.now(),
+                    text: message,
+                    isUser: isUser,
+                    timestamp: new Date().toISOString()
+                };
+                
+                this.chatHistory.push(messageObj);
+                
+                // Keep only last 100 messages
+                if (this.chatHistory.length > 100) {
+                    this.chatHistory = this.chatHistory.slice(-100);
+                }
+                
+                localStorage.setItem('chatHistory', JSON.stringify(this.chatHistory));
+                return messageObj;
+            }
+
+            appendMessage(message, isUser, animate = true) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${isUser ? 'user-message' : 'ai-message'}`;
+                
+                const timestamp = new Date().toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+                
+                messageDiv.innerHTML = `
+                    <div class="message-content">
+                        <div class="message-text">${this.formatMessage(message)}</div>
+                        <div class="message-time">${timestamp}</div>
+                    </div>
+                `;
+                
+                this.messagesContainer.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+
+            formatMessage(message) {
+                return message
+                    .replace(/\n/g, '<br>')
+                    .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+            }
+
+            showEnhancedTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.id = 'typing-indicator';
+                typingDiv.className = 'message ai-message';
+                typingDiv.innerHTML = `
+                    <div class="typing-indicator">
+                        <div class="typing-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                        <div style="margin-left: 8px; display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                            <span class="typing-text" style="font-size: 12px; color: #64748b;">AI is processing your request...</span>
+                            <div class="progress-indicator">
+                                <div class="progress-bar">
+                                    <div class="progress-fill"></div>
+                                </div>
+                                <span class="progress-text">0s</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                this.messagesContainer.appendChild(typingDiv);
+                this.scrollToBottom();
+            }
+
+            hideTypingIndicator() {
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+            }
+
+            autoResizeInput() {
+                this.inputField.style.height = 'auto';
+                const newHeight = Math.max(20, Math.min(this.inputField.scrollHeight, 120));
+                this.inputField.style.height = newHeight + 'px';
+                
+                // Ensure proper text wrapping
+                this.inputField.style.overflowY = newHeight >= 120 ? 'auto' : 'hidden';
+            }
+
+            scrollToBottom() {
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            }
+
+            showStatus(message, type = 'info') {
+                const existingStatus = this.statusContainer.querySelector('.status-message');
+                if (existingStatus) {
+                    existingStatus.remove();
+                }
+
+                const statusElement = document.createElement('div');
+                statusElement.className = `status-message ${type}`;
+                statusElement.textContent = message;
+                this.statusContainer.appendChild(statusElement);
+                
+                setTimeout(() => {
+                    if (statusElement.parentNode) {
+                        statusElement.remove();
+                    }
+                }, 4000);
+            }
+
+            isValidUrl(string) {
+                try {
+                    new URL(string);
+                    return true;
+                } catch (_) {
+                    return false;
+                }
+            }
+        }
+
+        // Initialize chat when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            new ChatAssistant();
+        });
+    </script>
+</body>
+</html> 
