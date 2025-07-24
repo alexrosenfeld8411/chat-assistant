@@ -269,7 +269,7 @@
 
         .chat-input-wrapper {
             display: flex;
-            align-items: flex-end;
+            align-items: flex-start;
             gap: 12px;
             background: white;
             border: 2px solid #e2e8f0;
@@ -299,6 +299,10 @@
             overflow: hidden;
             word-wrap: break-word;
             white-space: pre-wrap;
+            text-align: left;
+            vertical-align: top;
+            padding: 0;
+            margin: 0;
         }
 
         #chat-input::placeholder {
@@ -528,6 +532,110 @@
         .hidden {
             display: none !important;
         }
+
+        /* Markdown formatting styles */
+        .message-text h1, .message-text h2, .message-text h3, 
+        .message-text h4, .message-text h5, .message-text h6 {
+            margin: 8px 0 4px 0;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+
+        .message-text h1 { font-size: 18px; color: #1e293b; }
+        .message-text h2 { font-size: 16px; color: #374151; }
+        .message-text h3 { font-size: 14px; color: #4b5563; }
+        .message-text h4, .message-text h5, .message-text h6 { 
+            font-size: 13px; 
+            color: #6b7280; 
+        }
+
+        .message-text code {
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            color: #dc2626;
+        }
+
+        .message-text pre {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .message-text pre code {
+            background: none;
+            border: none;
+            padding: 0;
+            color: #374151;
+        }
+
+        .message-text blockquote {
+            border-left: 3px solid #667eea;
+            margin: 8px 0;
+            padding: 8px 0 8px 12px;
+            background: #f8fafc;
+            border-radius: 0 4px 4px 0;
+            font-style: italic;
+            color: #4b5563;
+        }
+
+        .message-text ul, .message-text ol {
+            margin: 8px 0;
+            padding-left: 20px;
+        }
+
+        .message-text li {
+            margin: 4px 0;
+            line-height: 1.4;
+        }
+
+        .message-text strong {
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .message-text em {
+            font-style: italic;
+            color: #374151;
+        }
+
+        .message-text a {
+            color: #667eea;
+            text-decoration: underline;
+            font-weight: 500;
+        }
+
+        .message-text a:hover {
+            color: #764ba2;
+            text-decoration: none;
+        }
+
+        .message-text p {
+            margin: 6px 0;
+            line-height: 1.5;
+        }
+
+        .message-text hr {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 12px 0;
+        }
+
+        .message-text .footnote {
+            font-size: 10px;
+            color: #667eea;
+            font-weight: 500;
+            margin-left: 2px;
+        }
     </style>
 </head>
 <body>
@@ -598,11 +706,11 @@
                     <input 
                         type="number" 
                         id="api-timeout" 
-                        value="90" 
+                        value="120" 
                         min="30" 
                         max="180">
                     <div class="setting-description">
-                        Recommended: 90s for complex AI workflows. Max: 3 minutes.
+                        Recommended: 120s (2 minutes) for complex AI workflows. Max: 3 minutes.
                     </div>
                 </div>
 
@@ -617,7 +725,7 @@
         class ChatAssistant {
             constructor() {
                 this.webhookUrl = localStorage.getItem('webhookUrl') || 'https://dgri5zej5qva2.cloudfront.net/webhook-test/dbd70933-6501-474c-b75e-3e3c35d7b221';
-                this.apiTimeout = parseInt(localStorage.getItem('apiTimeout')) || 90000; // 90 seconds default
+                this.apiTimeout = parseInt(localStorage.getItem('apiTimeout')) || 120000; // 120 seconds (2 minutes) default
                 this.chatHistory = JSON.parse(localStorage.getItem('chatHistory') || '[]');
                 this.isWaitingForResponse = false;
                 this.progressTimer = null;
@@ -956,9 +1064,83 @@
             }
 
             formatMessage(message) {
-                return message
-                    .replace(/\n/g, '<br>')
-                    .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+                if (!message) return '';
+                
+                let html = message;
+                
+                // Escape existing HTML to prevent conflicts
+                html = html.replace(/&/g, '&amp;')
+                          .replace(/</g, '&lt;')
+                          .replace(/>/g, '&gt;');
+                
+                // Handle code blocks first (to protect their content)
+                html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+                
+                // Handle inline code
+                html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+                
+                // Handle headers
+                html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+                html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+                html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+                
+                // Handle bold text (**text** or __text__)
+                html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+                
+                // Handle italic text (*text* or _text_)
+                html = html.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+                html = html.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+                
+                // Handle blockquotes
+                html = html.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
+                
+                // Handle unordered lists
+                html = html.replace(/^[*-] (.*$)/gm, '<li>$1</li>');
+                html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+                
+                // Handle ordered lists
+                html = html.replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
+                // This is a simplified approach - in reality, you'd want more sophisticated list handling
+                
+                // Handle footnotes and system references
+                // Track footnote counter for clean numbering
+                let footnoteCounter = 1;
+                
+                // Remove/convert various system-generated footnote patterns
+                // Pattern 1: [^tooluser$(...)] 
+                html = html.replace(/\[\^[a-zA-Z]+\$\([^)]+\)\]/g, '');
+                
+                // Pattern 2: tooluser-xxxxx@number (like tooluser-HcxOutRgRVRIwuoxG4pwZA@1)
+                html = html.replace(/\btooluser-[a-zA-Z0-9]+@\d+/g, '');
+                
+                // Pattern 3: Any other system references with @ symbols and long IDs
+                html = html.replace(/\b[a-zA-Z]+[-_][a-zA-Z0-9]{20,}@\d+/g, '');
+                
+                // Pattern 4: Any remaining complex footnote references with special characters
+                html = html.replace(/\[[^\]]*[a-zA-Z0-9]{15,}[^\]]*\]/g, '');
+                
+                // Handle remaining standard footnotes [^1] [^note] - convert to simple numbers
+                html = html.replace(/\[\^([^\]]+)\]/g, () => {
+                    return `<sup class="footnote">${footnoteCounter++}</sup>`;
+                });
+                
+                // Handle links [text](url)
+                html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+                
+                // Handle direct URLs (but not if they're already in links)
+                html = html.replace(/(?<!href="|">)(https?:\/\/[^\s<]+)(?!<\/a>)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+                
+                // Handle line breaks
+                html = html.replace(/\n\n/g, '</p><p>');
+                html = html.replace(/\n/g, '<br>');
+                
+                // Wrap in paragraphs if needed
+                if (html && !html.includes('<p>') && !html.includes('<h') && !html.includes('<ul>') && !html.includes('<pre>')) {
+                    html = `<p>${html}</p>`;
+                }
+                
+                return html;
             }
 
             showEnhancedTypingIndicator() {
