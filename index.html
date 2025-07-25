@@ -706,11 +706,11 @@
                     <input 
                         type="number" 
                         id="api-timeout" 
-                        value="120" 
+                        value="300" 
                         min="30" 
-                        max="180">
+                        max="600">
                     <div class="setting-description">
-                        Recommended: 120s (2 minutes) for complex AI workflows. Max: 3 minutes.
+                        Recommended: 300s (5 minutes) for complex AI workflows. Max: 10 minutes. The app will automatically retry failed requests up to 3 times.
                     </div>
                 </div>
 
@@ -725,11 +725,16 @@
         class ChatAssistant {
             constructor() {
                 this.webhookUrl = localStorage.getItem('webhookUrl') || 'https://dgri5zej5qva2.cloudfront.net/webhook-test/dbd70933-6501-474c-b75e-3e3c35d7b221';
-                this.apiTimeout = parseInt(localStorage.getItem('apiTimeout')) || 120000; // 120 seconds (2 minutes) default
+                this.apiTimeout = parseInt(localStorage.getItem('apiTimeout')) || 300000; // Increased to 5 minutes default
                 this.chatHistory = JSON.parse(localStorage.getItem('chatHistory') || '[]');
                 this.isWaitingForResponse = false;
                 this.progressTimer = null;
+                this.heartbeatTimer = null;
                 this.startTime = null;
+                this.currentAbortController = null;
+                this.retryAttempts = 0;
+                this.maxRetries = 3;
+                this.baseRetryDelay = 5000; // 5 seconds
                 
                 this.initializeElements();
                 this.attachEventListeners();
@@ -805,8 +810,8 @@
                     return;
                 }
 
-                if (timeout < 30000 || timeout > 180000) {
-                    this.showStatus('Timeout must be between 30 and 180 seconds', 'error');
+                if (timeout < 30000 || timeout > 600000) { // Allow up to 10 minutes
+                    this.showStatus('Timeout must be between 30 seconds and 10 minutes', 'error');
                     return;
                 }
 
@@ -911,41 +916,124 @@
                 this.inputField.value = '';
                 this.autoResizeInput();
 
-                // Send to webhook
+                // Reset retry attempts for new message
+                this.retryAttempts = 0;
+                await this.sendMessageWithRetry(message);
+            }
+
+            async sendMessageWithRetry(message, isRetry = false) {
                 this.isWaitingForResponse = true;
                 this.sendBtn.disabled = true;
                 this.startTime = Date.now();
-                this.showEnhancedTypingIndicator();
+                
+                if (!isRetry) {
+                    this.showEnhancedTypingIndicator();
+                }
+                
                 this.updateConnectionStatus('Processing...', 'processing');
                 this.startProgressTimer();
+                this.startHeartbeat();
 
                 try {
-                    const response = await this.sendToWebhook(message);
+                    const response = await this.sendToWebhookWithHeartbeat(message);
                     this.hideTypingIndicator();
-                    this.clearProgressTimer();
+                    this.clearAllTimers();
                     
                     // Add AI response
                     this.addToHistory(response, false);
                     this.appendMessage(response, false);
                     this.updateConnectionStatus('Connected', 'connected');
                     
+                    // Reset retry attempts on success
+                    this.retryAttempts = 0;
+                    
                 } catch (error) {
-                    this.hideTypingIndicator();
-                    this.clearProgressTimer();
+                    this.clearAllTimers();
                     console.error('Chat error:', error);
                     
-                    let errorMessage = 'Sorry, I encountered an error. Please check your connection and try again.';
-                    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
-                        errorMessage = 'The AI is taking longer than expected. Please try a simpler question or check your connection.';
+                    // Check if we should retry
+                    if (this.shouldRetry(error) && this.retryAttempts < this.maxRetries) {
+                        this.retryAttempts++;
+                        const delay = this.getRetryDelay();
+                        
+                        this.updateTypingIndicatorForRetry(delay);
+                        this.updateConnectionStatus(`Retrying in ${delay/1000}s... (${this.retryAttempts}/${this.maxRetries})`, 'processing');
+                        
+                        setTimeout(() => {
+                            this.sendMessageWithRetry(message, true);
+                        }, delay);
+                        
+                        return; // Don't continue to finally block yet
                     }
                     
-                    this.appendMessage(errorMessage, false);
-                    this.showStatus('Failed to send message', 'error');
-                    this.updateConnectionStatus('Connection failed', 'disconnected');
+                    // Max retries reached or non-retryable error
+                    this.hideTypingIndicator();
+                    this.handleFinalError(error);
+                    
                 } finally {
-                    this.isWaitingForResponse = false;
-                    this.sendBtn.disabled = false;
-                    this.inputField.focus();
+                    if (this.retryAttempts >= this.maxRetries || !this.shouldRetry(error)) {
+                        this.isWaitingForResponse = false;
+                        this.sendBtn.disabled = false;
+                        this.inputField.focus();
+                    }
+                }
+            }
+
+            shouldRetry(error) {
+                // Retry on timeout, network errors, or 5xx server errors
+                return error.name === 'TimeoutError' || 
+                       error.name === 'AbortError' ||
+                       error.message.includes('timeout') ||
+                       error.message.includes('network') ||
+                       error.message.includes('fetch') ||
+                       (error.message.includes('HTTP 5'));
+            }
+
+            getRetryDelay() {
+                // Exponential backoff: 5s, 10s, 20s
+                return this.baseRetryDelay * Math.pow(2, this.retryAttempts - 1);
+            }
+
+            handleFinalError(error) {
+                let errorMessage = 'Sorry, I encountered an error. Please check your connection and try again.';
+                
+                if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+                    errorMessage = `The AI workflow is taking longer than expected (${this.apiTimeout/1000}s timeout). Please try a simpler question or increase the timeout in settings.`;
+                } else if (error.message.includes('HTTP 5')) {
+                    errorMessage = 'The server is experiencing issues. Please try again in a few moments.';
+                } else if (error.name === 'AbortError') {
+                    errorMessage = 'Request was cancelled. You can try sending your message again.';
+                } else if (error.message.includes('CORS')) {
+                    errorMessage = 'Connection blocked by CORS policy. Please check your webhook URL configuration.';
+                }
+                
+                this.appendMessage(errorMessage, false);
+                this.showStatus(`Failed after ${this.retryAttempts} attempts`, 'error');
+                this.updateConnectionStatus('Connection failed', 'disconnected');
+                
+                // Reset retry attempts
+                this.retryAttempts = 0;
+            }
+
+            startHeartbeat() {
+                // Send periodic heartbeat to keep connection alive
+                this.heartbeatTimer = setInterval(() => {
+                    if (this.isWaitingForResponse && this.currentAbortController) {
+                        // Optional: Could implement actual heartbeat endpoint here
+                        console.log('Heartbeat: Request still processing...');
+                    }
+                }, 30000); // Every 30 seconds
+            }
+
+            clearAllTimers() {
+                this.clearProgressTimer();
+                this.clearHeartbeat();
+            }
+
+            clearHeartbeat() {
+                if (this.heartbeatTimer) {
+                    clearInterval(this.heartbeatTimer);
+                    this.heartbeatTimer = null;
                 }
             }
 
@@ -966,61 +1054,53 @@
                 this.startTime = null;
             }
 
-            updateTypingProgress(elapsed) {
-                const typingIndicator = document.getElementById('typing-indicator');
-                if (!typingIndicator) return;
-
-                const maxTime = this.apiTimeout / 1000;
-                const progress = Math.min((elapsed / maxTime) * 100, 100);
+            async sendToWebhookWithHeartbeat(message) {
+                // Create a new AbortController for this request
+                this.currentAbortController = new AbortController();
                 
-                const progressFill = typingIndicator.querySelector('.progress-fill');
-                const progressText = typingIndicator.querySelector('.progress-text');
-                const typingText = typingIndicator.querySelector('.typing-text');
-                
-                if (progressFill) progressFill.style.width = `${progress}%`;
-                if (progressText) progressText.textContent = `${elapsed}s`;
-                
-                if (typingText) {
-                    if (elapsed < 15) {
-                        typingText.textContent = 'AI is processing your request...';
-                    } else if (elapsed < 30) {
-                        typingText.textContent = 'Still processing... complex queries take time';
-                    } else if (elapsed < 60) {
-                        typingText.textContent = 'Almost there... finalizing response';
-                    } else {
-                        typingText.textContent = 'This is taking longer than usual...';
-                    }
-                }
+                const timeoutId = setTimeout(() => {
+                    this.currentAbortController.abort('Request timeout');
+                }, this.apiTimeout);
 
-                this.updateConnectionStatus(`Processing... ${elapsed}s`, 'processing');
-            }
-
-            async sendToWebhook(message) {
-                const response = await fetch(this.webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        timestamp: new Date().toISOString(),
-                        url: window.location.href,
-                        domain: window.location.hostname
-                    }),
-                    signal: AbortSignal.timeout(this.apiTimeout)
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-
-                const text = await response.text();
-                
                 try {
-                    const data = JSON.parse(text);
-                    return data.response || data.message || text;
-                } catch (e) {
-                    return text || 'Response received';
+                    const response = await fetch(this.webhookUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Cache-Control': 'no-cache',
+                            'Connection': 'keep-alive'
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            timestamp: new Date().toISOString(),
+                            url: window.location.href,
+                            domain: window.location.hostname,
+                            retryAttempt: this.retryAttempts,
+                            userAgent: navigator.userAgent
+                        }),
+                        signal: this.currentAbortController.signal,
+                        keepalive: true
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    const text = await response.text();
+                    
+                    try {
+                        const data = JSON.parse(text);
+                        return data.response || data.message || text;
+                    } catch (e) {
+                        return text || 'Response received';
+                    }
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    throw error;
+                } finally {
+                    this.currentAbortController = null;
                 }
             }
 
@@ -1162,6 +1242,17 @@
                                 </div>
                                 <span class="progress-text">0s</span>
                             </div>
+                            <button class="cancel-btn" onclick="chatAssistant.cancelRequest()" style="
+                                background: #f87171; 
+                                color: white; 
+                                border: none; 
+                                padding: 4px 8px; 
+                                border-radius: 6px; 
+                                font-size: 10px; 
+                                cursor: pointer;
+                                align-self: flex-start;
+                                margin-top: 4px;
+                            ">Cancel Request</button>
                         </div>
                     </div>
                 `;
@@ -1215,11 +1306,78 @@
                     return false;
                 }
             }
+
+            updateTypingProgress(elapsed) {
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (!typingIndicator) return;
+
+                const maxTime = this.apiTimeout / 1000;
+                const progress = Math.min((elapsed / maxTime) * 100, 100);
+                
+                const progressFill = typingIndicator.querySelector('.progress-fill');
+                const progressText = typingIndicator.querySelector('.progress-text');
+                const typingText = typingIndicator.querySelector('.typing-text');
+                
+                if (progressFill) progressFill.style.width = `${progress}%`;
+                if (progressText) progressText.textContent = `${elapsed}s`;
+                
+                if (typingText) {
+                    if (this.retryAttempts > 0) {
+                        typingText.textContent = `Retrying... attempt ${this.retryAttempts}/${this.maxRetries}`;
+                    } else if (elapsed < 30) {
+                        typingText.textContent = 'AI is processing your request...';
+                    } else if (elapsed < 60) {
+                        typingText.textContent = 'Complex query detected - processing...';
+                    } else if (elapsed < 120) {
+                        typingText.textContent = 'Still working on your request...';
+                    } else {
+                        typingText.textContent = 'This is a complex request - please wait...';
+                    }
+                }
+
+                this.updateConnectionStatus(`Processing... ${elapsed}s`, 'processing');
+            }
+
+            updateTypingIndicatorForRetry(delay) {
+                const typingIndicator = document.getElementById('typing-indicator');
+                if (!typingIndicator) return;
+
+                const typingText = typingIndicator.querySelector('.typing-text');
+                if (typingText) {
+                    let countdown = Math.ceil(delay / 1000);
+                    const countdownTimer = setInterval(() => {
+                        countdown--;
+                        if (countdown > 0) {
+                            typingText.textContent = `Retrying in ${countdown}s... (${this.retryAttempts}/${this.maxRetries})`;
+                        } else {
+                            clearInterval(countdownTimer);
+                            typingText.textContent = `Retrying now... (${this.retryAttempts}/${this.maxRetries})`;
+                        }
+                    }, 1000);
+                }
+            }
+
+            cancelRequest() {
+                if (this.currentAbortController) {
+                    this.currentAbortController.abort('User cancelled');
+                }
+                this.clearAllTimers();
+                this.hideTypingIndicator();
+                this.isWaitingForResponse = false;
+                this.sendBtn.disabled = false;
+                this.retryAttempts = 0;
+                
+                this.appendMessage('Request cancelled by user.', false);
+                this.updateConnectionStatus('Ready to chat', 'connected');
+                this.inputField.focus();
+            }
         }
 
         // Initialize chat when page loads
+        let chatAssistant;
         document.addEventListener('DOMContentLoaded', () => {
-            new ChatAssistant();
+            chatAssistant = new ChatAssistant();
+            window.chatAssistant = chatAssistant; // Make globally accessible for cancel button
         });
     </script>
 </body>
