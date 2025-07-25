@@ -719,6 +719,13 @@
                 </div>
 
                 <div class="setting-group">
+                    <button class="save-btn" id="reset-ui" style="background: #f59e0b;">Reset UI State</button>
+                    <div class="setting-description">
+                        Use this if the send button becomes unresponsive or stuck.
+                    </div>
+                </div>
+
+                <div class="setting-group">
                     <label>📋 CORS Configuration Help:</label>
                     <div class="setting-description" style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
                         <strong>If you get CORS errors:</strong><br>
@@ -769,6 +776,7 @@
                 this.apiTimeoutInput = document.getElementById('api-timeout');
                 this.saveWebhookBtn = document.getElementById('save-webhook');
                 this.testConnectionBtn = document.getElementById('test-connection');
+                this.resetUIBtn = document.getElementById('reset-ui');
                 this.statusContainer = document.getElementById('status-container');
                 this.connectionStatus = document.getElementById('connection-status');
                 this.statusText = document.getElementById('status-text');
@@ -797,6 +805,7 @@
                 // Settings actions
                 this.saveWebhookBtn.addEventListener('click', () => this.saveSettings());
                 this.testConnectionBtn.addEventListener('click', () => this.testConnection());
+                this.resetUIBtn.addEventListener('click', () => this.resetUIState());
 
                 // Focus input on load
                 this.inputField.focus();
@@ -963,7 +972,36 @@
 
                 // Reset retry attempts for new message
                 this.retryAttempts = 0;
-                await this.sendMessageWithRetry(message);
+                
+                try {
+                    await this.sendMessageWithRetry(message);
+                } catch (error) {
+                    // Safety net: ensure button is always re-enabled
+                    console.error('Unexpected error in sendMessage:', error);
+                    this.ensureButtonEnabled();
+                }
+            }
+
+            ensureButtonEnabled() {
+                // Safety method to ensure UI is always in a usable state
+                this.isWaitingForResponse = false;
+                this.sendBtn.disabled = false;
+                this.hideTypingIndicator();
+                this.clearAllTimers();
+                this.retryAttempts = 0;
+                this.updateConnectionStatus('Ready to chat', 'connected');
+                this.inputField.focus();
+            }
+
+            resetUIState() {
+                // Manual UI reset for troubleshooting
+                this.ensureButtonEnabled();
+                this.showStatus('UI state has been reset', 'success');
+                
+                // Close settings panel
+                setTimeout(() => {
+                    this.toggleSettings();
+                }, 1500);
             }
 
             async sendMessageWithRetry(message, isRetry = false) {
@@ -979,6 +1017,8 @@
                 this.startProgressTimer();
                 this.startHeartbeat();
 
+                let requestCompleted = false;
+
                 try {
                     const response = await this.sendToWebhookWithHeartbeat(message);
                     this.hideTypingIndicator();
@@ -991,6 +1031,7 @@
                     
                     // Reset retry attempts on success
                     this.retryAttempts = 0;
+                    requestCompleted = true;
                     
                 } catch (error) {
                     this.clearAllTimers();
@@ -1014,9 +1055,11 @@
                     // Max retries reached or non-retryable error
                     this.hideTypingIndicator();
                     this.handleFinalError(error);
+                    requestCompleted = true;
                     
                 } finally {
-                    if (this.retryAttempts >= this.maxRetries || !this.shouldRetry(error)) {
+                    // Always re-enable the button when request is completed (success or final failure)
+                    if (requestCompleted) {
                         this.isWaitingForResponse = false;
                         this.sendBtn.disabled = false;
                         this.inputField.focus();
@@ -1511,15 +1554,10 @@
                 if (this.currentAbortController) {
                     this.currentAbortController.abort('User cancelled');
                 }
-                this.clearAllTimers();
-                this.hideTypingIndicator();
-                this.isWaitingForResponse = false;
-                this.sendBtn.disabled = false;
-                this.retryAttempts = 0;
                 
+                // Use safety method to ensure clean state
+                this.ensureButtonEnabled();
                 this.appendMessage('Request cancelled by user.', false);
-                this.updateConnectionStatus('Ready to chat', 'connected');
-                this.inputField.focus();
             }
         }
 
