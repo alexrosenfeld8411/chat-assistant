@@ -717,6 +717,21 @@
                 <div class="setting-group">
                     <button class="save-btn" id="test-connection">Test Connection</button>
                 </div>
+
+                <div class="setting-group">
+                    <label>📋 CORS Configuration Help:</label>
+                    <div class="setting-description" style="background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin-top: 8px;">
+                        <strong>If you get CORS errors:</strong><br>
+                        Add these headers to your n8n HTTP Response node:<br><br>
+                        <code style="display: block; background: white; padding: 8px; border-radius: 4px; font-size: 11px; margin: 4px 0;">
+                        Access-Control-Allow-Origin: https://alexrosenfeld8411.github.io<br>
+                        Access-Control-Allow-Methods: POST, OPTIONS<br>
+                        Access-Control-Allow-Headers: Content-Type
+                        </code>
+                        <br>
+                        <strong>CloudFront users:</strong> Enable CORS in your distribution settings and whitelist the above headers.
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -835,40 +850,70 @@
                     return;
                 }
 
-                this.showStatus('Testing connection...', 'info');
+                this.showStatus('Testing connection and CORS configuration...', 'info');
                 this.testConnectionBtn.disabled = true;
                 this.testConnectionBtn.textContent = 'Testing...';
 
                 try {
+                    // Test 1: CORS preflight check
+                    await this.performCorsPreflightTest();
+                    
+                    // Test 2: Actual request test
                     const response = await fetch(this.webhookUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
                         body: JSON.stringify({
-                            message: 'Connection test',
+                            message: 'CORS and connection test',
                             timestamp: new Date().toISOString(),
                             url: window.location.href,
                             domain: window.location.hostname,
                             test: true
                         }),
-                        signal: AbortSignal.timeout(this.apiTimeout)
+                        signal: AbortSignal.timeout(30000), // 30 second timeout for test
+                        mode: 'cors'
                     });
 
                     if (response.ok) {
-                        this.showStatus('✅ Connection successful!', 'success');
+                        this.showStatus('✅ Connection and CORS test successful!', 'success');
                         this.updateConnectionStatus('Connected', 'connected');
                     } else {
-                        this.showStatus(`❌ Connection failed: ${response.status}`, 'error');
+                        this.showStatus(`❌ Connection test failed: HTTP ${response.status}`, 'error');
                         this.updateConnectionStatus('Connection failed', 'disconnected');
                     }
                 } catch (error) {
                     console.error('Connection test failed:', error);
-                    this.showStatus(`❌ Connection failed: ${error.message}`, 'error');
-                    this.updateConnectionStatus('Connection failed', 'disconnected');
+                    
+                    let testMessage = `❌ Connection test failed: ${error.message}`;
+                    if (this.isCorsError(error)) {
+                        testMessage += '\n\n🔧 **CORS Issue Detected**: Your webhook needs CORS headers configured.';
+                    }
+                    
+                    this.showStatus(testMessage, 'error');
+                    this.updateConnectionStatus('CORS/Connection failed', 'disconnected');
                 } finally {
                     this.testConnectionBtn.disabled = false;
                     this.testConnectionBtn.textContent = 'Test Connection';
+                }
+            }
+
+            async performCorsPreflightTest() {
+                // Attempt an OPTIONS request to check CORS preflight
+                try {
+                    const response = await fetch(this.webhookUrl, {
+                        method: 'OPTIONS',
+                        headers: {
+                            'Origin': window.location.origin,
+                            'Access-Control-Request-Method': 'POST',
+                            'Access-Control-Request-Headers': 'Content-Type'
+                        },
+                        signal: AbortSignal.timeout(10000)
+                    });
+                    
+                    console.log('CORS preflight response:', response.status, response.headers);
+                } catch (error) {
+                    console.log('CORS preflight failed (this is expected if CORS is not configured):', error.message);
                 }
             }
 
@@ -996,18 +1041,35 @@
 
             handleFinalError(error) {
                 let errorMessage = 'Sorry, I encountered an error. Please check your connection and try again.';
+                let helpMessage = '';
                 
-                if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
-                    errorMessage = `The AI workflow is taking longer than expected (${this.apiTimeout/1000}s timeout). Please try a simpler question or increase the timeout in settings.`;
+                if (this.isCorsError(error) || error.message.includes('CORS configuration needed')) {
+                    errorMessage = '🚫 **CORS Error**: Your n8n webhook needs to be configured to allow requests from this domain.';
+                    helpMessage = `
+
+**To fix this issue:**
+
+1. **In your n8n workflow**, add these HTTP response headers:
+   - \`Access-Control-Allow-Origin: https://alexrosenfeld8411.github.io\`
+   - \`Access-Control-Allow-Methods: POST, OPTIONS\`
+   - \`Access-Control-Allow-Headers: Content-Type\`
+
+2. **If using CloudFront**, configure CORS in your distribution settings
+
+3. **Alternative**: Use a different webhook service that supports CORS
+
+**Quick test**: Try the "Test Connection" button in Settings to diagnose the issue.`;
+                } else if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+                    errorMessage = `⏱️ **Timeout**: The AI workflow is taking longer than expected (${this.apiTimeout/1000}s timeout). Please try a simpler question or increase the timeout in settings.`;
                 } else if (error.message.includes('HTTP 5')) {
-                    errorMessage = 'The server is experiencing issues. Please try again in a few moments.';
+                    errorMessage = '🔧 **Server Error**: The server is experiencing issues. Please try again in a few moments.';
                 } else if (error.name === 'AbortError') {
-                    errorMessage = 'Request was cancelled. You can try sending your message again.';
-                } else if (error.message.includes('CORS')) {
-                    errorMessage = 'Connection blocked by CORS policy. Please check your webhook URL configuration.';
+                    errorMessage = '❌ **Cancelled**: Request was cancelled. You can try sending your message again.';
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = '🌐 **Network Error**: Unable to connect to the server. Check your internet connection and webhook URL.';
                 }
                 
-                this.appendMessage(errorMessage, false);
+                this.appendMessage(errorMessage + helpMessage, false);
                 this.showStatus(`Failed after ${this.retryAttempts} attempts`, 'error');
                 this.updateConnectionStatus('Connection failed', 'disconnected');
                 
@@ -1063,12 +1125,59 @@
                 }, this.apiTimeout);
 
                 try {
-                    const response = await fetch(this.webhookUrl, {
+                    // First, try the standard CORS request
+                    const response = await this.attemptCorsRequest(message);
+                    clearTimeout(timeoutId);
+                    return await this.processResponse(response);
+                } catch (corsError) {
+                    clearTimeout(timeoutId);
+                    
+                    // If CORS fails, try alternative methods
+                    if (this.isCorsError(corsError)) {
+                        console.log('CORS error detected, trying fallback methods...');
+                        try {
+                            return await this.attemptFallbackRequest(message);
+                        } catch (fallbackError) {
+                            // If all methods fail, provide helpful error message
+                            throw new Error(`CORS configuration needed: ${corsError.message}`);
+                        }
+                    }
+                    
+                    throw corsError;
+                } finally {
+                    this.currentAbortController = null;
+                }
+            }
+
+            async attemptCorsRequest(message) {
+                return await fetch(this.webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        timestamp: new Date().toISOString(),
+                        url: window.location.href,
+                        domain: window.location.hostname,
+                        retryAttempt: this.retryAttempts,
+                        userAgent: navigator.userAgent,
+                        requestMethod: 'standard-cors'
+                    }),
+                    signal: this.currentAbortController.signal,
+                    mode: 'cors', // Explicit CORS mode
+                    credentials: 'omit' // Don't send credentials
+                });
+            }
+
+            async attemptFallbackRequest(message) {
+                // Method 1: Try with no-cors mode (fire-and-forget)
+                try {
+                    await fetch(this.webhookUrl, {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/json',
-                            'Cache-Control': 'no-cache',
-                            'Connection': 'keep-alive'
+                            'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({
                             message: message,
@@ -1076,32 +1185,73 @@
                             url: window.location.href,
                             domain: window.location.hostname,
                             retryAttempt: this.retryAttempts,
-                            userAgent: navigator.userAgent
+                            requestMethod: 'no-cors-fallback'
                         }),
                         signal: this.currentAbortController.signal,
-                        keepalive: true
+                        mode: 'no-cors' // This bypasses CORS but doesn't return response
                     });
-
-                    clearTimeout(timeoutId);
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                    }
-
-                    const text = await response.text();
                     
-                    try {
-                        const data = JSON.parse(text);
-                        return data.response || data.message || text;
-                    } catch (e) {
-                        return text || 'Response received';
+                    // Since no-cors doesn't return a response, we'll simulate success
+                    this.showStatus('Message sent (no response available due to CORS restrictions)', 'warning');
+                    return 'Your message has been sent to the AI system. Due to browser security restrictions (CORS), I cannot retrieve the response directly. Please check your n8n workflow logs or configure CORS headers on your webhook endpoint.';
+                    
+                } catch (noCorsError) {
+                    // Method 2: Try using a public CORS proxy (not recommended for production)
+                    if (confirm('Direct connection failed. Try using a CORS proxy? (Not recommended for sensitive data)')) {
+                        return await this.attemptProxyRequest(message);
                     }
-                } catch (error) {
-                    clearTimeout(timeoutId);
-                    throw error;
-                } finally {
-                    this.currentAbortController = null;
+                    
+                    throw new Error('All connection methods failed');
                 }
+            }
+
+            async attemptProxyRequest(message) {
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const encodedWebhookUrl = encodeURIComponent(this.webhookUrl);
+                
+                const response = await fetch(proxyUrl + encodedWebhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        timestamp: new Date().toISOString(),
+                        url: window.location.href,
+                        domain: window.location.hostname,
+                        requestMethod: 'proxy'
+                    }),
+                    signal: this.currentAbortController.signal
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Proxy request failed: ${response.status}`);
+                }
+                
+                this.showStatus('Connected via CORS proxy', 'warning');
+                return await this.processResponse(response);
+            }
+
+            async processResponse(response) {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const text = await response.text();
+                
+                try {
+                    const data = JSON.parse(text);
+                    return data.response || data.message || text;
+                } catch (e) {
+                    return text || 'Response received';
+                }
+            }
+
+            isCorsError(error) {
+                return error.message.includes('CORS') || 
+                       error.message.includes('Cross-Origin') ||
+                       error.message.includes('blocked') ||
+                       error.name === 'TypeError' && error.message.includes('fetch');
             }
 
             addToHistory(message, isUser) {
